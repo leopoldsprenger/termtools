@@ -23,5 +23,8 @@ pyenv/
 .vscode/
 .idea/
 
+# Ignore output directory
+output
+
 # Ignore macOS system files
 .DS_Store
