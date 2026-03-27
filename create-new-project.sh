@@ -1,30 +1,61 @@
 #!/usr/bin/env bash
+set -e
 
-############################
-# Defaults (global outputs)
-############################
+# Defaults and Constants
+PROTOTYPES_DIR="$HOME/Documents/projects/prototypes"
 REPO_NAME=""
 LANG=""
 GITHUB=false
 STATUS=""
 DESCRIPTION=""
 
-############################
-# CLI argument parser
-############################
-parse_args() {
-    REPO_NAME="$1"
-    LANG="$2"
-    shift 2
+SUPPORTED_LANGS=("python" "py" "cpp" "c++")
 
-    GITHUB=false
-    STATUS=""
-    DESCRIPTION=""
+log() {
+    echo "[*] $1"
+}
+
+error() {
+    echo "[!] $1" >&2
+    exit 1
+}
+
+show_help() {
+    echo "Usage:"
+    echo "  setup.sh <repo_name> [options]"
+    echo ""
+    echo "Options:"
+    echo "  --lang <language>        Project language"
+    echo "  --github                 Create GitHub repo"
+    echo "  --status <public|private> (requires --github)"
+    echo "  --description <text>     (requires --github)"
+    echo "  --help                   Show this help"
+    echo ""
+    echo "Supported languages:"
+    printf "  - %s\n" "${SUPPORTED_LANGS[@]}"
+}
+
+parse_args() {
+    [[ "$1" == "--help" ]] && show_help && exit 0
+
+    REPO_NAME="$1"
+    shift 1
+
+    [[ -z "$REPO_NAME" ]] && error "Repository name required"
 
     local github_seen=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --help)
+                show_help
+                exit 0
+                ;;
+            --lang)
+                [[ -z "$2" ]] && error "--lang requires a value"
+                LANG="$2"
+                shift 2
+                ;;
             --github)
                 GITHUB=true
                 github_seen=true
@@ -32,36 +63,34 @@ parse_args() {
                 ;;
             --status)
                 if ! $github_seen; then
-                    echo "Error: --status requires --github and must come after it" >&2
-                    exit 1
+                    error "--status requires --github and must come after it"
                 fi
                 STATUS="$2"
                 shift 2
                 ;;
             --description)
                 if ! $github_seen; then
-                    echo "Error: --description requires --github and must come after it" >&2
-                    exit 1
+                    error "--description requires --github and must come after it"
                 fi
                 DESCRIPTION="$2"
                 shift 2
                 ;;
             *)
-                echo "Unknown argument: $1" >&2
-                exit 1
+                error "Unknown argument: $1"
                 ;;
         esac
     done
+
+    log "Parsed args → repo='$REPO_NAME', lang='${LANG:-none}', github=$GITHUB"
 }
 
-############################
 # Interactive wizard
-############################
 wizard() {
-    read -rp "Repository name: " REPO_NAME
-    read -rp "Language: " LANG
+    log "Starting interactive wizard"
 
-    # GitHub Y/n choice
+    read -rp "Repository name: " REPO_NAME
+    read -rp "Language (enter for empty project): " LANG
+
     while true; do
         read -rp "Create GitHub repository? [Y/n]: " yn
         case "${yn:-Y}" in
@@ -79,7 +108,6 @@ wizard() {
         esac
     done
 
-    # Arrow-key selection for repo visibility
     echo "Select repository visibility:"
     select STATUS in "public" "private"; do
         [[ -n "$STATUS" ]] && break
@@ -87,15 +115,14 @@ wizard() {
     done
 
     read -rp "Repository description (optional): " DESCRIPTION
+
+    log "Wizard complete → repo='$REPO_NAME', lang='${LANG:-none}', github=$GITHUB"
 }
 
-############################
-# Create new python venv
-############################
 create_py_venv() {
+    log "Creating Python venv"
     python3 -m venv .venv
 
-    # system-specific activation
     case "$OSTYPE" in
         linux*|darwin*)
             source .venv/bin/activate
@@ -104,23 +131,21 @@ create_py_venv() {
             source .venv/Scripts/activate
             ;;
         *)
-            echo "Warning: could not auto-activate venv on OSTYPE='$OSTYPE'"
+            log "Could not auto-activate venv (OSTYPE=$OSTYPE)"
             ;;
     esac
 }
 
-############################
-# Create python specific files
-############################
 create_py_files() {
-    mkdir -p src tests
+    log "Scaffolding Python project"
 
+    mkdir -p src tests
     touch README.md .gitignore src/main.py
 
     cat > README.md <<EOF
 # $REPO_NAME
 EOF
-    
+
     cat > src/main.py <<EOF
 def main():
     print("Project initialized correctly...")
@@ -130,42 +155,22 @@ if __name__ == "__main__":
 EOF
 
     cat > .gitignore <<EOF
-# .gitignore
-
-# Ignore environment files
 .env
-
-# Ignore IDE/project-specific files
-.ropeproject/
-
-# Ignore Python bytecode
 __pycache__/
 *.pyc
 .pytest_cache/
-
-# Ignore virtual environment
 venv/
 .venv/
-pyenv/
-
-# Ignore logs
-*.log
-
-# Ignore IDE configurations (e.g., VS Code, PyCharm)
 .vscode/
 .idea/
-
-# Ignore macOS system files
 .DS_Store
 EOF
 }
 
-############################
-# Create C++ files
-############################
 create_cpp_files() {
-    mkdir -p src include tests build
+    log "Scaffolding C++ project"
 
+    mkdir -p src include tests build
     touch README.md .gitignore CMakeLists.txt src/main.cpp
 
     cat > README.md <<EOF
@@ -187,59 +192,33 @@ project($REPO_NAME)
 
 set(CMAKE_CXX_STANDARD 23)
 
-# Add source files
 add_executable(\${PROJECT_NAME} src/main.cpp)
 EOF
 
     cat > .gitignore <<EOF
-# Build directories
 build/
 cmake-build-*/
-
-# Compiled objects and binaries
 *.o
-*.obj
-*.out
 *.exe
-*.dll
-*.so
-*.dylib
-a.out
-
-# CMake files
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-compile_commands.json
-
-# Logs
 *.log
-
-# IDE / editor files
 .vscode/
 .idea/
-
-# macOS
 .DS_Store
-
-# Windows
-Thumbs.db
 EOF
 }
 
-############################
-# Setup the repository
-############################
 setup_repo() {
-    # create repo directory and init git
-    mkdir -p "$REPO_NAME"
-    cd "$REPO_NAME" || exit 1
+    local TARGET_DIR="$PROTOTYPES_DIR/$REPO_NAME"
 
-    git init
+    log "Creating project at $TARGET_DIR"
 
-    ################################
-    # Create project files
-    ################################
+    mkdir -p "$PROTOTYPES_DIR"
+    mkdir -p "$TARGET_DIR"
+    cd "$TARGET_DIR" || exit 1
+
+    git init >/dev/null
+    log "Initialized git repository"
+
     case "$LANG" in
         python|py|Python|Py)
             create_py_venv
@@ -249,15 +228,13 @@ setup_repo() {
             create_cpp_files
             ;;
         *)
-            echo "Error: language '$LANG' not supported"
-            exit 1
+            log "No/unknown language → empty project"
             ;;
     esac
 
-    ################################
-    # GitHub repo creation (optional)
-    ################################
     if $GITHUB; then
+        log "Creating GitHub repository ($STATUS)"
+
         gh repo create "$REPO_NAME" \
             --"$STATUS" \
             ${DESCRIPTION:+--description "$DESCRIPTION"} \
@@ -266,20 +243,10 @@ setup_repo() {
             --push=false
     fi
 
-    ################################
-    # Initial commit and push
-    ################################
-    git add .
-    git commit -m "Initial commit"
-
-    if $GITHUB; then
-        git push -u origin main 2>/dev/null || git push -u origin master
-    fi
+    log "Done"
 }
 
-############################
 # Entry point
-############################
 if [[ $# -gt 0 ]]; then
     parse_args "$@"
 else
