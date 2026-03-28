@@ -119,54 +119,6 @@ wizard() {
     log "Wizard complete → repo='$REPO_NAME', lang='${LANG:-none}', github=$GITHUB"
 }
 
-create_py_venv() {
-    log "Creating Python venv"
-    python3 -m venv .venv
-
-    case "$OSTYPE" in
-        linux*|darwin*)
-            source .venv/bin/activate
-            ;;
-        msys*|cygwin*|win32*)
-            source .venv/Scripts/activate
-            ;;
-        *)
-            log "Could not auto-activate venv (OSTYPE=$OSTYPE)"
-            ;;
-    esac
-}
-
-create_py_files() {
-    log "Scaffolding Python project"
-
-    mkdir -p src tests
-    touch README.md .gitignore src/main.py
-
-    cat > README.md <<EOF
-# $REPO_NAME
-EOF
-
-    cat > src/main.py <<EOF
-def main():
-    print("Project initialized correctly...")
-
-if __name__ == "__main__":
-    main()
-EOF
-
-    cat > .gitignore <<EOF
-.env
-__pycache__/
-*.pyc
-.pytest_cache/
-venv/
-.venv/
-.vscode/
-.idea/
-.DS_Store
-EOF
-}
-
 create_cpp_files() {
     log "Scaffolding C++ project"
 
@@ -221,8 +173,7 @@ setup_repo() {
 
     case "$LANG" in
         python|py|Python|Py)
-            create_py_venv
-            create_py_files
+            uv init
             ;;
         cpp|c++|C++|CPP)
             create_cpp_files
