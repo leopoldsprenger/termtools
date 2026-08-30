@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# Exit immediately if a command exits with a non-zero status
 set -e
 
 # --- Configuration ---
@@ -28,19 +27,10 @@ if [ -d "$TARGET_DIR" ]; then
     exit 1
 fi
 
-# --- Platform Detection Safeguard ---
+# --- Platform Detection ---
 IS_NIXOS=false
 if [ -f /etc/os-release ] && grep -qi "nixos" /etc/os-release; then
     IS_NIXOS=true
-fi
-
-NIX_SYSTEM=""
-if [ "$IS_NIXOS" = true ]; then
-    echo "NixOS environment detected. Determining dynamic system architecture..."
-    NIX_SYSTEM=$(nix eval --raw nixpkgs#stdenv.hostPlatform.system)
-    echo "Detected System: $NIX_SYSTEM"
-else
-    echo "Standard OS detected. Skipping Nix flake generation infrastructure."
 fi
 
 echo "Creating new project: $PROJECT_NAME (Language: $LANGUAGE)"
@@ -49,13 +39,11 @@ cd "$TARGET_DIR"
 
 # --- Initialize Git ---
 git init -q
-echo ".direnv/" > .gitignore
-echo "result" >> .gitignore
-echo ".venv/" >> .gitignore
 
 # --- Initialize Language Core Workspace Structure ---
 case "$LANGUAGE" in
     python)
+        # Natively bootstraps with uv across all systems
         if command -v uv &> /dev/null; then
             uv init --no-readme --quiet
         else
@@ -63,60 +51,13 @@ case "$LANGUAGE" in
             touch src/main.py
             echo "# Python project workspace" > README.md
         fi
-
-        if [ "$IS_NIXOS" = true ]; then
-            echo "use flake" > .envrc
-            cat << EOF > flake.nix
-{
-  description = "Python project with cross-platform uv support";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-  outputs = { self, nixpkgs }:
-    let
-      system = "$NIX_SYSTEM";
-      pkgs = nixpkgs.legacyPackages.\${system};
-    in {
-      devShells.\${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          uv
-          git
-        ];
-
-        shellHook = ''
-          export LD_LIBRARY_PATH="\${pkgs.stdenv.cc.cc.lib}/lib:\$LD_LIBRARY_PATH"
-        '';
-      };
-    };
-}
-EOF
-        fi
         ;;
 
     node|typescript|javascript)
         mkdir -p src
         touch src/index.js
-        if [ "$IS_NIXOS" = true ]; then
-            echo "use flake" > .envrc
-            cat << EOF > flake.nix
-{
-  description = "Node.js Development Environment";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-  outputs = { self, nixpkgs }:
-    let
-      system = "$NIX_SYSTEM";
-      pkgs = nixpkgs.legacyPackages.\${system};
-    in {
-      devShells.\${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          nodejs_20
-          nodePackages.npm
-          nodePackages.typescript-language-server
-        ];
-      };
-    };
-}
-EOF
+        if command -v npm &> /dev/null; then
+            npm init -y > /dev/null
         fi
         ;;
 
@@ -127,94 +68,39 @@ EOF
             mkdir -p src
             touch src/main.rs
         fi
-
-        if [ "$IS_NIXOS" = true ]; then
-            echo "use flake" > .envrc
-            cat << EOF > flake.nix
-{
-  description = "Rust Development Environment";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-  outputs = { self, nixpkgs }:
-    let
-      system = "$NIX_SYSTEM";
-      pkgs = nixpkgs.legacyPackages.\${system};
-    in {
-      devShells.\${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          cargo
-          rustc
-          rustfmt
-          clippy
-          rust-analyzer
-        ];
-      };
-    };
-}
-EOF
-        fi
         ;;
 
     c|cpp)
         mkdir -p src
         touch src/main.c
-        if [ "$IS_NIXOS" = true ]; then
-            echo "use flake" > .envrc
-            cat << EOF > flake.nix
-{
-  description = "C/C++ Development Environment";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-  outputs = { self, nixpkgs }:
-    let
-      system = "$NIX_SYSTEM";
-      pkgs = nixpkgs.legacyPackages.\${system};
-    in {
-      devShells.\${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          gcc
-          gnumake
-          cmake
-          clang-tools
-        ];
-      };
-    };
-}
+        cat << EOF > Makefile
+default:
+	gcc src/main.c -o result
 EOF
-        fi
         ;;
 
     empty|*)
-        if [ "$IS_NIXOS" = true ]; then
-            echo "use flake" > .envrc
-            cat << EOF > flake.nix
-{
-  description = "Minimal Blank Development Environment";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-  outputs = { self, nixpkgs }:
-    let
-      system = "$NIX_SYSTEM";
-      pkgs = nixpkgs.legacyPackages.\${system};
-    in {
-      devShells.\${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          coreutils
-          git
-        ];
-      };
-    };
-}
-EOF
-        fi
+        touch .keep
         ;;
 esac
 
-# --- Evaluate Nix Configurations and Track Shell (NixOS-only step) ---
+# --- Optional NixOS Direnv Layout Hook ---
+# Thanks to global nix-ld, we only need to hook into the shell layout engine
 if [ "$IS_NIXOS" = true ]; then
-    git add flake.nix .envrc .gitignore
-    nix flake lock --quiet
-    direnv allow . &> /dev/null
+    case "$LANGUAGE" in
+        python)
+            echo "layout virtualenv" > .envrc
+            ;;
+        node|typescript|javascript)
+            echo "layout node" > .envrc
+            ;;
+        *)
+            # Fallback layout trigger if desired
+            touch .envrc
+            ;;
+    esac
+    # Allows direnv silently without blocking script execution
+    direnv allow . &> /dev/null || true
 fi
 
 # --- Remote Repository Prompt Engine ---
@@ -223,14 +109,14 @@ read -p "Would you like to publish this repository to GitHub? (y/N): " CREATE_RE
 if [[ "$CREATE_REMOTE" =~ ^[Yy]$ ]]; then
     if ! command -v gh &> /dev/null; then
         echo "Error: GitHub CLI ('gh') is not installed or accessible in current PATH."
-        echo "Please install 'gh' onto your target platform configuration framework."
+        echo "Please verify that 'pkgs.gh' is configured in your system suite."
     else
         read -p "Enter remote repository name [$PROJECT_NAME]: " REMOTE_NAME
         REMOTE_NAME="${REMOTE_NAME:-$PROJECT_NAME}"
 
         read -p "Enter repository description: " REMOTE_DESC
 
-        # Default fallback is now private if you hit enter
+        # Defaults to private if you press Enter
         read -p "Make repository public? (y/N): " IS_PUBLIC
         VISIBILITY="--private"
         if [[ "$IS_PUBLIC" =~ ^[Yy]$ ]]; then
