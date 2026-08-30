@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PROJECTS_DIR="$HOME/Documents/projects"
+PROJECTS_DIR="$HOME/projects"
 
 SELECTION=$(find "$PROJECTS_DIR" -mindepth 2 -maxdepth 2 -type d \
     | grep -v '/\.' \
